@@ -1,58 +1,50 @@
 import torch as pt
-from utils import logistic_fun, binomial_coeff, calculate_weights
+from utils import logistic_fun, binomial_coeff, generate_data
+from metrics import F1Score, Accuracy
 from lossClasses import MyCrossEntropy, MyRootMeanSquare
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+import torch.nn as nn
 
-def generate_data(N:int, M:int, D=5, add_noise=True):
-    p  = sum(binomial_coeff(D + m - 1, m) for m in range(M + 1))
-    print(p)
-    w = calculate_weights(p)
-    print(w.size())
-    X = pt.empty(N, D).uniform_(-5.0, 5.0)
-    y = logistic_fun(w, M, X)
-    if add_noise:
-        y+= pt.randn(y.size())
-    targets = (y >= 0.5).int()
-    return X, targets
 
-def fit_logistic_sgd(X:pt.Tensor, targets:pt.Tensor, loss_type:str, M:int, lr=0.001, batch_size=32, epochs=1000):
+
+def fit_logistic_sgd(X:pt.Tensor, targets:pt.Tensor, loss_type:str, M:int, lr=0.1, batch_size=32, epochs=1000, verbose=True):
      
     """
     Use loss_type = 'CE' for MyCrossEntropy or loss_type = 'RMS' for MyRootMeanSquare
     """
 
     dataset = TensorDataset(X, targets)
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-
+    
     N, D = X.size()
     p  = sum(binomial_coeff(D + m - 1, m) for m in range(M + 1))
-    weights = pt.randn(p, requires_grad=True)
+    device = pt.device("cuda" if pt.cuda.is_available() else "cpu")
+    weights = pt.randn(p, device=device, requires_grad=True)
     optimizer = optim.SGD([weights], lr=lr)
-    match loss_type:
-        case 'CE':
-            loss_function = MyCrossEntropy()
-        case 'RMS':
-            loss_function = MyRootMeanSquare()
-        case _:
-            assert False #Loss not supported
-
+    loss_dict = {'CE': MyCrossEntropy(), 'RMS': MyRootMeanSquare()}
+    loss_function = loss_dict.get(loss_type, None)
+    if not loss_function:
+        raise ValueError("Loss not supported")
+    train_loader = DataLoader(dataset, batch_size=batch_size,shuffle=True)
     for epoch in range(epochs):
+        
         for batch_X, batch_y in train_loader:
             optimizer.zero_grad()
             predictions = logistic_fun(weights, M, batch_X)
-            loss = loss_function(predictions.float(), batch_y.float())
+            loss = loss_function(predictions.double(), batch_y.double())
             loss.backward()
             optimizer.step()
 
-        if epoch%50 ==0:
+        if verbose and epoch%50 ==0:
             print(f"Epoch [{epoch}/{epochs}], Loss: {loss.item():4f}")
 
     train_pred = logistic_fun(weights, M, X)
     train_pred_labels = (train_pred >= 0.5).int()
-    accuracy = (train_pred_labels == targets).float().mean()
-    print(f"Train Accuracy: {accuracy.item() :.4f}")
+    accuracy = Accuracy(targets,train_pred_labels)
+    f1 = F1Score(targets,train_pred_labels)
+    if verbose:
+        print(f"Train Accuracy: {accuracy :.4f}")
+        print(f"Train F1 Score: {f1 :.4f}")
     
     return weights.detach()
 
@@ -64,35 +56,37 @@ def fit_logistic_sgd(X:pt.Tensor, targets:pt.Tensor, loss_type:str, M:int, lr=0.
 
 if __name__ == '__main__':
 
-    pt.manual_seed(42)
+    #pt.manual_seed(42)
     
-    train_X, train_targets = generate_data(N=200, M=2 )
-    print(train_X, train_targets)
+    train_X, train_targets = generate_data(N=200, M=2, add_noise=True)
+
     test_X, test_targets = generate_data(N=100, M=2, add_noise=False)
-    print(sum(test_targets))
+    
     Ms = [1,2,3]
     Ls = ["CE", "RMS"]
+    metrics = {"CE":{"accuracy":[],"f1":[]}, "RMS":{"accuracy":[],"f1":[]}}
     for loss_type in Ls:
         print(f"==========Loss {loss_type}==========")
         for m in Ms:
             print(f"---------- M = {m}-------------")
             w_hat = fit_logistic_sgd(train_X, train_targets, loss_type, m)
-            #print(w_hat)
+
             test_pred =logistic_fun(w_hat, m, test_X)
-            
-            match loss_type:
-                case 'CE':
-                    test_loss_fn = MyCrossEntropy()
-                case 'RMS':
-                    test_loss_fn = MyRootMeanSquare()
+            loss_dict = {'CE': nn.BCELoss(), 'RMS': MyRootMeanSquare()}
+            loss_function = loss_dict.get(loss_type, None)
+            if not loss_function:
+                raise ValueError("Loss not supported")
 
-            test_loss = test_loss_fn(test_pred.float(), test_targets.float())
+            test_loss = loss_function(test_pred.double(), test_targets.double())
 
-            test_pred_labels = (test_pred >= 0.5).int()
+            test_pred_labels = (test_pred >= 0.5)
 
-            accuracy = (test_pred_labels == test_targets).float().mean()
+            metrics[loss_type]["accuracy"].append(Accuracy(test_targets.double(),test_pred_labels.double()))
+            metrics[loss_type]["f1"].append(F1Score(test_pred_labels, test_targets))
 
-            print(f"Test Loss: {test_loss.item()}")
-            print(f"Test Accuracy: {accuracy.item() :.4f}")
-
-
+    print("==============Metrics=================")
+    for loss in metrics.keys():
+        print(f"---------- Loss {loss}----------")
+        for metric in metrics[loss].keys():
+            for m in Ms:
+                print(f"{metric} Score Test for m={m}: {metrics[loss][metric].pop():4f}")
