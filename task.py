@@ -8,7 +8,7 @@ import torch.nn as nn
 
 
 
-def fit_logistic_sgd(X:pt.Tensor, targets:pt.Tensor, loss_type:str, M:int, lr=0.1, batch_size=32, epochs=1000, verbose=True):
+def fit_logistic_sgd(X:pt.Tensor, targets:pt.Tensor, loss_type:str, M:int, lr=0.01, batch_size=32, epochs=1000, verbose=True):
      
     """
     Use loss_type = 'CE' for MyCrossEntropy or loss_type = 'RMS' for MyRootMeanSquare
@@ -56,8 +56,13 @@ def fit_logistic_sgd(X:pt.Tensor, targets:pt.Tensor, loss_type:str, M:int, lr=0.
 
 if __name__ == '__main__':
 
-    #pt.manual_seed(42)
+    pt.manual_seed(42)
     
+    print("""
+        The two metrics selected are the Accuracy which indcates ...
+        The F1 Score provides...
+    """)
+
     train_X, train_targets = generate_data(N=200, M=2, add_noise=True)
 
     test_X, test_targets = generate_data(N=100, M=2, add_noise=False)

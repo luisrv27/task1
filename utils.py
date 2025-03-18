@@ -3,14 +3,15 @@ import torch as pt
 
 def generate_polynomial_features(x: pt.Tensor, M: int) -> pt.Tensor:
     N, D = x.shape
-    indices = [combo for degree in range(1, M + 1) 
-               for combo in pt.combinations(pt.arange(D), r=degree, with_replacement=True)]
-    
-    terms = [pt.ones((N, 1), device=x.device)]  # Bias term (degree 0)
+    indices = (
+        combo for degree in range(1, M + 1)
+        for combo in pt.combinations(pt.arange(D), r=degree, with_replacement=True)
+    )
+
+    terms = [pt.ones((N, 1), device=x.device)]
     terms.extend(pt.prod(x[:, combo], dim=1, keepdim=True) for combo in indices)
 
-    return pt.hstack(terms)  # Efficiently concatenate features
-
+    return pt.cat(terms, dim=1)
 
 def logistic_fun(w: pt.Tensor, M: int, x: pt.Tensor) -> pt.Tensor:
     return pt.sigmoid(generate_polynomial_features(x, M) @ w)
